@@ -386,7 +386,8 @@ def get_candidates():
     connection = get_db_connection()
 
     candidates = connection.execute(
-        CANDIDATE_WITH_LATEST_APPLICATION_QUERY + " ORDER BY candidate.created_at DESC"
+        CANDIDATE_WITH_LATEST_APPLICATION_QUERY
+        + " ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC"
     ).fetchall()
 
     connection.close()
@@ -394,6 +395,50 @@ def get_candidates():
     candidates_list = [dict(candidate) for candidate in candidates]
 
     return jsonify(candidates_list)
+
+
+@app.route("/api/candidates/paginated", methods=["GET"])
+def get_candidates_paginated():
+    try:
+        page = int(request.args.get("page", "1"))
+        page_size = int(request.args.get("page_size", "25"))
+    except ValueError:
+        return jsonify({"error": "Page and page_size must be whole numbers."}), 400
+
+    if page < 1:
+        return jsonify({"error": "Page must be greater than zero."}), 400
+    if page_size < 1 or page_size > 100:
+        return jsonify({"error": "page_size must be between 1 and 100."}), 400
+
+    connection = get_db_connection()
+    try:
+        total = connection.execute(
+            "SELECT COUNT(*) AS total FROM candidates"
+        ).fetchone()["total"]
+        positions = connection.execute(
+            "SELECT DISTINCT position FROM candidates ORDER BY position COLLATE NOCASE"
+        ).fetchall()
+        total_pages = (total + page_size - 1) // page_size
+        if page > total_pages:
+            candidates = []
+        else:
+            offset = (page - 1) * page_size
+            candidates = connection.execute(
+                CANDIDATE_WITH_LATEST_APPLICATION_QUERY
+                + " ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC LIMIT ? OFFSET ?",
+                (page_size, offset),
+            ).fetchall()
+    finally:
+        connection.close()
+
+    return jsonify({
+        "candidates": [dict(candidate) for candidate in candidates],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "positions": [row["position"] for row in positions],
+    }), 200
 
 
 @app.route("/api/dashboard/summary", methods=["GET"])

@@ -110,6 +110,24 @@ export async function getCandidates() {
   return await response.json();
 }
 
+// Get one page of candidates from the backend.
+export async function getPaginatedCandidates(page = 1, pageSize = 25) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/candidates/paginated?${params.toString()}`
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to fetch candidates");
+  }
+
+  return data;
+}
+
 export async function getDashboardSummary() {
   const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`);
   const data = await response.json();

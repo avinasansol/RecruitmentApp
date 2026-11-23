@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 
 import {
   getCandidates,
+  getPaginatedCandidates,
   getCandidateApplications,
   getApplicationCvUrl,
   addCandidate,
@@ -31,6 +32,7 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  Pagination,
   useMediaQuery,
 } from "@mui/material";
 
@@ -105,6 +107,18 @@ function formatHistoryTimestamp(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function getCandidateCreatedAt(candidate) {
+  if (!candidate.created_at) return 0;
+
+  const value = String(candidate.created_at);
+  const normalizedValue = value.includes("T")
+    ? value
+    : `${value.replace(" ", "T")}Z`;
+  const timestamp = Date.parse(normalizedValue);
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function Candidates() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -114,11 +128,26 @@ function Candidates() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+  const [totalCandidates, setTotalCandidates] = useState(0);
+  const [serverTotalPages, setServerTotalPages] = useState(1);
+  const [positions, setPositions] = useState([]);
+  const [allCandidatesCache, setAllCandidatesCache] = useState(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [positionFilter, setPositionFilter] = useState("All");
   const [sortOrder, setSortOrder] = useState("Newest");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Search, filters, and non-default sorting remain client-side until their
+  // backend query support is implemented in the following steps.
+  const useClientSideDataset = Boolean(
+    search.trim() ||
+    statusFilter !== "All" ||
+    positionFilter !== "All" ||
+    sortOrder !== "Newest"
+  );
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState(defaultForm);
@@ -140,10 +169,35 @@ function Candidates() {
       setError("");
 
       try {
-        const data = await getCandidates();
+        if (useClientSideDataset) {
+          const data = allCandidatesCache ?? await getCandidates();
 
-        if (!cancelled) {
-          setCandidates(data);
+          if (!cancelled) {
+            setCandidates(data);
+            setTotalCandidates(data.length);
+            setServerTotalPages(Math.max(1, Math.ceil(data.length / pageSize)));
+            setPositions([
+              ...new Set(data.map((candidate) => candidate.position)),
+            ]);
+            if (allCandidatesCache === null) {
+              setAllCandidatesCache(data);
+            }
+          }
+        } else {
+          const data = await getPaginatedCandidates(currentPage, pageSize);
+          const lastAvailablePage = Math.max(1, data.total_pages);
+
+          if (!cancelled && currentPage > lastAvailablePage) {
+            setCurrentPage(lastAvailablePage);
+            return;
+          }
+
+          if (!cancelled) {
+            setCandidates(data.candidates);
+            setTotalCandidates(data.total);
+            setServerTotalPages(lastAvailablePage);
+            setPositions(data.positions || []);
+          }
         }
       } catch (error) {
         console.error(error);
@@ -165,7 +219,7 @@ function Candidates() {
     return () => {
       cancelled = true;
     };
-  }, [retryCount]);
+  }, [retryCount, currentPage, pageSize, useClientSideDataset, allCandidatesCache]);
 
   useEffect(() => {
     if (!viewCandidate?.id) return undefined;
@@ -192,11 +246,6 @@ function Candidates() {
       cancelled = true;
     };
   }, [viewCandidate?.id]);
-
-  // Get unique positions
-  const positions = [
-    ...new Set(candidates.map((candidate) => candidate.position)),
-  ];
 
   // Search, filter and sort candidates
   const filteredCandidates = candidates
@@ -226,8 +275,24 @@ function Candidates() {
         return b.name.localeCompare(a.name);
       }
 
-      return b.id - a.id;
+      const timestampDifference =
+        getCandidateCreatedAt(b) - getCandidateCreatedAt(a);
+      return timestampDifference || b.id - a.id;
     });
+
+  const resultCount = useClientSideDataset
+    ? filteredCandidates.length
+    : totalCandidates;
+  const totalPages = useClientSideDataset
+    ? Math.max(1, Math.ceil(filteredCandidates.length / pageSize))
+    : serverTotalPages;
+  const displayedPage = Math.min(currentPage, totalPages);
+  const visibleCandidates = useClientSideDataset
+    ? filteredCandidates.slice(
+        (displayedPage - 1) * pageSize,
+        displayedPage * pageSize
+      )
+    : filteredCandidates;
 
   // Delete candidate
   async function handleDeleteCandidate() {
@@ -241,6 +306,10 @@ function Candidates() {
           (candidate) => candidate.id !== deleteCandidate.id
         )
       );
+      setAllCandidatesCache((previous) => previous?.filter(
+        (candidate) => candidate.id !== deleteCandidate.id
+      ) ?? previous);
+      setRetryCount((previous) => previous + 1);
 
       setDeleteCandidate(null);
     } catch (error) {
@@ -321,10 +390,15 @@ function Candidates() {
               : candidate
           )
         );
+        setAllCandidatesCache((previous) => previous?.map((candidate) =>
+          candidate.id === updatedCandidate.id ? updatedCandidate : candidate
+        ) ?? previous);
       } else {
         const newCandidate = await addCandidate(formData);
 
         setCandidates((previous) => [newCandidate, ...previous]);
+        setAllCandidatesCache((previous) => previous ? [newCandidate, ...previous] : previous);
+        setCurrentPage(1);
       }
     } catch (error) {
       console.error(error);
@@ -336,6 +410,8 @@ function Candidates() {
 
       return;
     }
+
+    setRetryCount((previous) => previous + 1);
 
     setFormData(defaultForm);
     setFormErrors({});
@@ -432,7 +508,10 @@ function Candidates() {
               placeholder="Name, phone or email"
               size="small"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
               fullWidth
             />
 
@@ -441,7 +520,10 @@ function Candidates() {
               label="Status"
               size="small"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
             >
               <MenuItem value="All">All Statuses</MenuItem>
 
@@ -457,7 +539,10 @@ function Candidates() {
               label="Position"
               size="small"
               value={positionFilter}
-              onChange={(e) => setPositionFilter(e.target.value)}
+              onChange={(e) => {
+                setPositionFilter(e.target.value);
+                setCurrentPage(1);
+              }}
             >
               <MenuItem value="All">All Positions</MenuItem>
 
@@ -473,7 +558,10 @@ function Candidates() {
               label="Sort By"
               size="small"
               value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
+              onChange={(e) => {
+                setSortOrder(e.target.value);
+                setCurrentPage(1);
+              }}
             >
               <MenuItem value="Newest">Newest</MenuItem>
               <MenuItem value="Name A-Z">Name A-Z</MenuItem>
@@ -508,7 +596,7 @@ function Candidates() {
         </Stack>
       ) : (
         <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
-          {filteredCandidates.length} candidate(s) found
+          {resultCount} candidate(s) found
         </Typography>
       )}
 
@@ -553,7 +641,7 @@ function Candidates() {
               </TableHead>
 
               <TableBody>
-                {filteredCandidates.map((candidate) => (
+                {visibleCandidates.map((candidate) => (
                   <TableRow key={candidate.id} hover>
                     <TableCell>
                       <Typography fontWeight={600}>
@@ -678,7 +766,7 @@ function Candidates() {
       {/* Mobile Cards */}
       {showCompactList && (
       <Stack spacing={2}>
-        {filteredCandidates.map((candidate) => (
+        {visibleCandidates.map((candidate) => (
           <Card
             key={candidate.id}
             elevation={0}
@@ -786,6 +874,53 @@ function Candidates() {
           </Card>
         ))}
       </Stack>
+      )}
+
+      {!loading && !error && resultCount > 0 && (
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          alignItems="center"
+          justifyContent="space-between"
+          spacing={1.5}
+          sx={{ mt: 2 }}
+        >
+          <Typography variant="body2" color="text.secondary">
+            Showing {(displayedPage - 1) * pageSize + 1}
+            {"–"}
+            {Math.min(displayedPage * pageSize, resultCount)} of {resultCount}
+          </Typography>
+
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            alignItems="center"
+            spacing={1.5}
+          >
+            <TextField
+              select
+              label="Rows per page"
+              size="small"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setCurrentPage(1);
+              }}
+              sx={{ minWidth: 145 }}
+            >
+              <MenuItem value={25}>25</MenuItem>
+              <MenuItem value={50}>50</MenuItem>
+            </TextField>
+
+            <Pagination
+              count={totalPages}
+              page={displayedPage}
+              onChange={(_, page) => setCurrentPage(page)}
+              color="primary"
+              size="small"
+              siblingCount={0}
+              boundaryCount={1}
+            />
+          </Stack>
+        </Stack>
       )}
 
       {/* Add / Edit Candidate Dialog */}
