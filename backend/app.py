@@ -411,8 +411,10 @@ def get_candidates_paginated():
         return jsonify({"error": "page_size must be between 1 and 100."}), 400
 
     search = request.args.get("search", "").strip()
-    search_filter = ""
-    search_parameters = []
+    status_filter = request.args.get("status", "").strip()
+    position_filter = request.args.get("position", "").strip()
+    filters = []
+    filter_parameters = []
     if search:
         escaped_search = (
             search.replace("\\", "\\\\")
@@ -420,23 +422,33 @@ def get_candidates_paginated():
             .replace("_", "\\_")
         )
         search_pattern = f"%{escaped_search}%"
-        search_filter = """
-            WHERE (
+        filters.append("""
+            (
                 LOWER(candidate.name) LIKE LOWER(?) ESCAPE '\\'
                 OR LOWER(candidate.email) LIKE LOWER(?) ESCAPE '\\'
                 OR LOWER(candidate.phone) LIKE LOWER(?) ESCAPE '\\'
             )
-        """
-        search_parameters = [search_pattern] * 3
+        """)
+        filter_parameters.extend([search_pattern] * 3)
+    if status_filter and status_filter != "All":
+        filters.append("candidate.status = ?")
+        filter_parameters.append(status_filter)
+    if position_filter and position_filter != "All":
+        filters.append("candidate.position = ?")
+        filter_parameters.append(position_filter)
+
+    candidate_query = f"({CANDIDATE_WITH_LATEST_APPLICATION_QUERY}) AS candidate"
+    where_clause = f" WHERE {' AND '.join(filters)}" if filters else ""
 
     connection = get_db_connection()
     try:
         total = connection.execute(
-            "SELECT COUNT(*) AS total FROM candidates AS candidate" + search_filter,
-            search_parameters,
+            f"SELECT COUNT(*) AS total FROM {candidate_query}{where_clause}",
+            filter_parameters,
         ).fetchone()["total"]
         positions = connection.execute(
-            "SELECT DISTINCT position FROM candidates ORDER BY position COLLATE NOCASE"
+            f"SELECT DISTINCT position FROM {candidate_query} "
+            "ORDER BY position COLLATE NOCASE"
         ).fetchall()
         total_pages = (total + page_size - 1) // page_size
         if page > total_pages:
@@ -444,10 +456,10 @@ def get_candidates_paginated():
         else:
             offset = (page - 1) * page_size
             candidates = connection.execute(
-                CANDIDATE_WITH_LATEST_APPLICATION_QUERY
-                + search_filter
-                + " ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC LIMIT ? OFFSET ?",
-                (*search_parameters, page_size, offset),
+                f"SELECT * FROM {candidate_query}{where_clause} "
+                "ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC "
+                "LIMIT ? OFFSET ?",
+                (*filter_parameters, page_size, offset),
             ).fetchall()
     finally:
         connection.close()

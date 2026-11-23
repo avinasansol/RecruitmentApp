@@ -141,14 +141,12 @@ function Candidates() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // Filters and non-default sorting remain client-side until their backend
-  // query support is implemented in the following steps.
-  const useClientSideDataset = Boolean(
-    statusFilter !== "All" ||
-    positionFilter !== "All" ||
-    sortOrder !== "Newest"
-  );
+  // Non-default sorting remains client-side until its backend query support
+  // is implemented in the following step.
+  const useClientSideDataset = sortOrder !== "Newest";
   const backendSearch = useClientSideDataset ? "" : debouncedSearch;
+  const backendStatus = useClientSideDataset ? "" : statusFilter;
+  const backendPosition = useClientSideDataset ? "" : positionFilter;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -197,7 +195,11 @@ function Candidates() {
           const data = await getPaginatedCandidates(
             currentPage,
             pageSize,
-            backendSearch
+            {
+              search: backendSearch,
+              status: backendStatus,
+              position: backendPosition,
+            }
           );
           const lastAvailablePage = Math.max(1, data.total_pages);
 
@@ -239,6 +241,8 @@ function Candidates() {
     pageSize,
     useClientSideDataset,
     backendSearch,
+    backendStatus,
+    backendPosition,
     allCandidatesCache,
   ]);
 
@@ -273,16 +277,18 @@ function Candidates() {
     .filter((candidate) => {
       const searchText = search.toLowerCase();
 
-      const matchesSearch =
-        !useClientSideDataset ||
+      const matchesSearch = !useClientSideDataset ||
         candidate.name.toLowerCase().includes(searchText) ||
         candidate.email.toLowerCase().includes(searchText) ||
         candidate.phone.includes(searchText);
 
       const matchesStatus =
-        statusFilter === "All" || candidate.status === statusFilter;
+        !useClientSideDataset ||
+        statusFilter === "All" ||
+        candidate.status === statusFilter;
 
       const matchesPosition =
+        !useClientSideDataset ||
         positionFilter === "All" ||
         candidate.position === positionFilter;
 

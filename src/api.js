@@ -111,13 +111,23 @@ export async function getCandidates() {
 }
 
 // Get one page of candidates from the backend.
-export async function getPaginatedCandidates(page = 1, pageSize = 25, search = "") {
+export async function getPaginatedCandidates(
+  page = 1,
+  pageSize = 25,
+  { search = "", status = "", position = "" } = {}
+) {
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
   });
   if (search.trim()) {
     params.set("search", search.trim());
+  }
+  if (status && status !== "All") {
+    params.set("status", status);
+  }
+  if (position && position !== "All") {
+    params.set("position", position);
   }
   const response = await fetch(
     `${API_BASE_URL}/api/candidates/paginated?${params.toString()}`
