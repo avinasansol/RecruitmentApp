@@ -134,20 +134,30 @@ function Candidates() {
   const [allCandidatesCache, setAllCandidatesCache] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [positionFilter, setPositionFilter] = useState("All");
   const [sortOrder, setSortOrder] = useState("Newest");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // Search, filters, and non-default sorting remain client-side until their
-  // backend query support is implemented in the following steps.
+  // Filters and non-default sorting remain client-side until their backend
+  // query support is implemented in the following steps.
   const useClientSideDataset = Boolean(
-    search.trim() ||
     statusFilter !== "All" ||
     positionFilter !== "All" ||
     sortOrder !== "Newest"
   );
+  const backendSearch = useClientSideDataset ? "" : debouncedSearch;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setCurrentPage(1);
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState(defaultForm);
@@ -184,7 +194,11 @@ function Candidates() {
             }
           }
         } else {
-          const data = await getPaginatedCandidates(currentPage, pageSize);
+          const data = await getPaginatedCandidates(
+            currentPage,
+            pageSize,
+            backendSearch
+          );
           const lastAvailablePage = Math.max(1, data.total_pages);
 
           if (!cancelled && currentPage > lastAvailablePage) {
@@ -219,7 +233,14 @@ function Candidates() {
     return () => {
       cancelled = true;
     };
-  }, [retryCount, currentPage, pageSize, useClientSideDataset, allCandidatesCache]);
+  }, [
+    retryCount,
+    currentPage,
+    pageSize,
+    useClientSideDataset,
+    backendSearch,
+    allCandidatesCache,
+  ]);
 
   useEffect(() => {
     if (!viewCandidate?.id) return undefined;
@@ -253,6 +274,7 @@ function Candidates() {
       const searchText = search.toLowerCase();
 
       const matchesSearch =
+        !useClientSideDataset ||
         candidate.name.toLowerCase().includes(searchText) ||
         candidate.email.toLowerCase().includes(searchText) ||
         candidate.phone.includes(searchText);
@@ -510,7 +532,6 @@ function Candidates() {
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                setCurrentPage(1);
               }}
               fullWidth
             />

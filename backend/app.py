@@ -410,10 +410,30 @@ def get_candidates_paginated():
     if page_size < 1 or page_size > 100:
         return jsonify({"error": "page_size must be between 1 and 100."}), 400
 
+    search = request.args.get("search", "").strip()
+    search_filter = ""
+    search_parameters = []
+    if search:
+        escaped_search = (
+            search.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        search_pattern = f"%{escaped_search}%"
+        search_filter = """
+            WHERE (
+                LOWER(candidate.name) LIKE LOWER(?) ESCAPE '\\'
+                OR LOWER(candidate.email) LIKE LOWER(?) ESCAPE '\\'
+                OR LOWER(candidate.phone) LIKE LOWER(?) ESCAPE '\\'
+            )
+        """
+        search_parameters = [search_pattern] * 3
+
     connection = get_db_connection()
     try:
         total = connection.execute(
-            "SELECT COUNT(*) AS total FROM candidates"
+            "SELECT COUNT(*) AS total FROM candidates AS candidate" + search_filter,
+            search_parameters,
         ).fetchone()["total"]
         positions = connection.execute(
             "SELECT DISTINCT position FROM candidates ORDER BY position COLLATE NOCASE"
@@ -425,8 +445,9 @@ def get_candidates_paginated():
             offset = (page - 1) * page_size
             candidates = connection.execute(
                 CANDIDATE_WITH_LATEST_APPLICATION_QUERY
+                + search_filter
                 + " ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC LIMIT ? OFFSET ?",
-                (page_size, offset),
+                (*search_parameters, page_size, offset),
             ).fetchall()
     finally:
         connection.close()
