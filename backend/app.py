@@ -413,6 +413,24 @@ def get_candidates_paginated():
     search = request.args.get("search", "").strip()
     status_filter = request.args.get("status", "").strip()
     position_filter = request.args.get("position", "").strip()
+    sort_order = request.args.get("sort", "newest").strip().lower() or "newest"
+    order_by = {
+        "newest": "julianday(candidate.created_at) DESC, candidate.id DESC",
+        "oldest": "julianday(candidate.created_at) ASC, candidate.id ASC",
+        "name_asc": (
+            "candidate.name COLLATE NOCASE ASC, "
+            "julianday(candidate.created_at) DESC, candidate.id DESC"
+        ),
+        "name_desc": (
+            "candidate.name COLLATE NOCASE DESC, "
+            "julianday(candidate.created_at) DESC, candidate.id DESC"
+        ),
+    }.get(sort_order)
+    if order_by is None:
+        return jsonify({
+            "error": "sort must be newest, oldest, name_asc, or name_desc."
+        }), 400
+
     filters = []
     filter_parameters = []
     if search:
@@ -457,7 +475,7 @@ def get_candidates_paginated():
             offset = (page - 1) * page_size
             candidates = connection.execute(
                 f"SELECT * FROM {candidate_query}{where_clause} "
-                "ORDER BY julianday(candidate.created_at) DESC, candidate.id DESC "
+                f"ORDER BY {order_by} "
                 "LIMIT ? OFFSET ?",
                 (*filter_parameters, page_size, offset),
             ).fetchall()

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 
 import {
-  getCandidates,
   getPaginatedCandidates,
   getCandidateApplications,
   getApplicationCvUrl,
@@ -107,18 +106,6 @@ function formatHistoryTimestamp(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function getCandidateCreatedAt(candidate) {
-  if (!candidate.created_at) return 0;
-
-  const value = String(candidate.created_at);
-  const normalizedValue = value.includes("T")
-    ? value
-    : `${value.replace(" ", "T")}Z`;
-  const timestamp = Date.parse(normalizedValue);
-
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
 function Candidates() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -131,22 +118,21 @@ function Candidates() {
   const [totalCandidates, setTotalCandidates] = useState(0);
   const [serverTotalPages, setServerTotalPages] = useState(1);
   const [positions, setPositions] = useState([]);
-  const [allCandidatesCache, setAllCandidatesCache] = useState(null);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [positionFilter, setPositionFilter] = useState("All");
-  const [sortOrder, setSortOrder] = useState("Newest");
+  const [sortOrder, setSortOrder] = useState("Newest to Oldest");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // Non-default sorting remains client-side until its backend query support
-  // is implemented in the following step.
-  const useClientSideDataset = sortOrder !== "Newest";
-  const backendSearch = useClientSideDataset ? "" : debouncedSearch;
-  const backendStatus = useClientSideDataset ? "" : statusFilter;
-  const backendPosition = useClientSideDataset ? "" : positionFilter;
+  const backendSort = {
+    "Newest to Oldest": "newest",
+    "Oldest to Newest": "oldest",
+    "Name A-Z": "name_asc",
+    "Name Z-A": "name_desc",
+  }[sortOrder];
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -177,43 +163,28 @@ function Candidates() {
       setError("");
 
       try {
-        if (useClientSideDataset) {
-          const data = allCandidatesCache ?? await getCandidates();
-
-          if (!cancelled) {
-            setCandidates(data);
-            setTotalCandidates(data.length);
-            setServerTotalPages(Math.max(1, Math.ceil(data.length / pageSize)));
-            setPositions([
-              ...new Set(data.map((candidate) => candidate.position)),
-            ]);
-            if (allCandidatesCache === null) {
-              setAllCandidatesCache(data);
-            }
+        const data = await getPaginatedCandidates(
+          currentPage,
+          pageSize,
+          {
+            search: debouncedSearch,
+            status: statusFilter,
+            position: positionFilter,
+            sort: backendSort,
           }
-        } else {
-          const data = await getPaginatedCandidates(
-            currentPage,
-            pageSize,
-            {
-              search: backendSearch,
-              status: backendStatus,
-              position: backendPosition,
-            }
-          );
-          const lastAvailablePage = Math.max(1, data.total_pages);
+        );
+        const lastAvailablePage = Math.max(1, data.total_pages);
 
-          if (!cancelled && currentPage > lastAvailablePage) {
-            setCurrentPage(lastAvailablePage);
-            return;
-          }
+        if (!cancelled && currentPage > lastAvailablePage) {
+          setCurrentPage(lastAvailablePage);
+          return;
+        }
 
-          if (!cancelled) {
-            setCandidates(data.candidates);
-            setTotalCandidates(data.total);
-            setServerTotalPages(lastAvailablePage);
-            setPositions(data.positions || []);
-          }
+        if (!cancelled) {
+          setCandidates(data.candidates);
+          setTotalCandidates(data.total);
+          setServerTotalPages(lastAvailablePage);
+          setPositions(data.positions || []);
         }
       } catch (error) {
         console.error(error);
@@ -239,11 +210,10 @@ function Candidates() {
     retryCount,
     currentPage,
     pageSize,
-    useClientSideDataset,
-    backendSearch,
-    backendStatus,
-    backendPosition,
-    allCandidatesCache,
+    debouncedSearch,
+    statusFilter,
+    positionFilter,
+    backendSort,
   ]);
 
   useEffect(() => {
@@ -272,55 +242,10 @@ function Candidates() {
     };
   }, [viewCandidate?.id]);
 
-  // Search, filter and sort candidates
-  const filteredCandidates = candidates
-    .filter((candidate) => {
-      const searchText = search.toLowerCase();
-
-      const matchesSearch = !useClientSideDataset ||
-        candidate.name.toLowerCase().includes(searchText) ||
-        candidate.email.toLowerCase().includes(searchText) ||
-        candidate.phone.includes(searchText);
-
-      const matchesStatus =
-        !useClientSideDataset ||
-        statusFilter === "All" ||
-        candidate.status === statusFilter;
-
-      const matchesPosition =
-        !useClientSideDataset ||
-        positionFilter === "All" ||
-        candidate.position === positionFilter;
-
-      return matchesSearch && matchesStatus && matchesPosition;
-    })
-    .sort((a, b) => {
-      if (sortOrder === "Name A-Z") {
-        return a.name.localeCompare(b.name);
-      }
-
-      if (sortOrder === "Name Z-A") {
-        return b.name.localeCompare(a.name);
-      }
-
-      const timestampDifference =
-        getCandidateCreatedAt(b) - getCandidateCreatedAt(a);
-      return timestampDifference || b.id - a.id;
-    });
-
-  const resultCount = useClientSideDataset
-    ? filteredCandidates.length
-    : totalCandidates;
-  const totalPages = useClientSideDataset
-    ? Math.max(1, Math.ceil(filteredCandidates.length / pageSize))
-    : serverTotalPages;
+  const resultCount = totalCandidates;
+  const totalPages = serverTotalPages;
   const displayedPage = Math.min(currentPage, totalPages);
-  const visibleCandidates = useClientSideDataset
-    ? filteredCandidates.slice(
-        (displayedPage - 1) * pageSize,
-        displayedPage * pageSize
-      )
-    : filteredCandidates;
+  const visibleCandidates = candidates;
 
   // Delete candidate
   async function handleDeleteCandidate() {
@@ -334,9 +259,6 @@ function Candidates() {
           (candidate) => candidate.id !== deleteCandidate.id
         )
       );
-      setAllCandidatesCache((previous) => previous?.filter(
-        (candidate) => candidate.id !== deleteCandidate.id
-      ) ?? previous);
       setRetryCount((previous) => previous + 1);
 
       setDeleteCandidate(null);
@@ -406,26 +328,9 @@ function Candidates() {
 
     try {
       if (editingCandidate) {
-        const updatedCandidate = await updateCandidate(
-          editingCandidate.id,
-          formData
-        );
-
-        setCandidates((previous) =>
-          previous.map((candidate) =>
-            candidate.id === updatedCandidate.id
-              ? updatedCandidate
-              : candidate
-          )
-        );
-        setAllCandidatesCache((previous) => previous?.map((candidate) =>
-          candidate.id === updatedCandidate.id ? updatedCandidate : candidate
-        ) ?? previous);
+        await updateCandidate(editingCandidate.id, formData);
       } else {
-        const newCandidate = await addCandidate(formData);
-
-        setCandidates((previous) => [newCandidate, ...previous]);
-        setAllCandidatesCache((previous) => previous ? [newCandidate, ...previous] : previous);
+        await addCandidate(formData);
         setCurrentPage(1);
       }
     } catch (error) {
@@ -590,7 +495,8 @@ function Candidates() {
                 setCurrentPage(1);
               }}
             >
-              <MenuItem value="Newest">Newest</MenuItem>
+              <MenuItem value="Newest to Oldest">Newest to Oldest</MenuItem>
+              <MenuItem value="Oldest to Newest">Oldest to Newest</MenuItem>
               <MenuItem value="Name A-Z">Name A-Z</MenuItem>
               <MenuItem value="Name Z-A">Name Z-A</MenuItem>
             </TextField>
@@ -776,7 +682,7 @@ function Candidates() {
                   </TableRow>
                 ))}
 
-                {filteredCandidates.length === 0 && (
+                {candidates.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} align="center">
                       No candidates found.

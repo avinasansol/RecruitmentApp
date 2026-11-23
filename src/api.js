@@ -114,7 +114,7 @@ export async function getCandidates() {
 export async function getPaginatedCandidates(
   page = 1,
   pageSize = 25,
-  { search = "", status = "", position = "" } = {}
+  { search = "", status = "", position = "", sort = "newest" } = {}
 ) {
   const params = new URLSearchParams({
     page: String(page),
@@ -128,6 +128,9 @@ export async function getPaginatedCandidates(
   }
   if (position && position !== "All") {
     params.set("position", position);
+  }
+  if (sort && sort !== "newest") {
+    params.set("sort", sort);
   }
   const response = await fetch(
     `${API_BASE_URL}/api/candidates/paginated?${params.toString()}`
