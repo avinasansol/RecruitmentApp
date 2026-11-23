@@ -1,16 +1,59 @@
-# React + Vite
+# RecruitmentApp
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A local recruitment management app with a React frontend and Flask API backed by SQLite.
 
-Currently, two official plugins are available:
+## Run locally on Windows
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Install Python and Node.js for development. Open two terminals from the project folder.
 
-## React Compiler
+### Backend terminal
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
 
-## Expanding the ESLint configuration
+The backend runs with Waitress on `http://127.0.0.1:5001` and is only accessible from the local computer.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Frontend terminal
+
+```powershell
+npm install
+npm run dev
+```
+
+Open the Vite address printed in the terminal, usually `http://localhost:5173`.
+
+## Run locally on macOS or Linux
+
+### Backend terminal
+
+```sh
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
+```
+
+### Frontend terminal
+
+```sh
+npm install
+npm run dev
+```
+
+Open the Vite address printed in the terminal, usually `http://localhost:5173`.
+
+## Data location
+
+For local development, the SQLite database is `backend/recruitment.db`; uploaded CVs are stored in `backend/uploads/cvs/`. These files remain on the computer when the app is stopped.
+
+## Build the frontend
+
+```sh
+npm run build
+```
+
+The generated static files are placed in `dist/`.

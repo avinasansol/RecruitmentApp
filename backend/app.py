@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from docx import Document
 from pypdf import PdfReader
+from waitress import serve
 
 from database import initialize_database, get_db_connection
 
@@ -808,4 +809,4 @@ def delete_candidate(candidate_id):
     return jsonify({"message": "Candidate deleted successfully"}), 200
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    serve(app, host="127.0.0.1", port=5001)
