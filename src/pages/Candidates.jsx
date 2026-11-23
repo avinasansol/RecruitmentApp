@@ -353,6 +353,7 @@ function Candidates() {
   }
 
   // Open Add Candidate dialog
+  // eslint-disable-next-line no-unused-vars
   function openAddDialog() {
     setEditingCandidate(null);
     setFormData(defaultForm);
@@ -402,17 +403,6 @@ function Candidates() {
           </Typography>
         </Box>
 
-        <Button
-          variant="contained"
-          onClick={openAddDialog}
-          sx={{
-            textTransform: "none",
-            borderRadius: 2,
-            width: { xs: "100%", sm: "auto" },
-          }}
-        >
-          + Add Candidate
-        </Button>
       </Box>
 
       {/* Filters */}
