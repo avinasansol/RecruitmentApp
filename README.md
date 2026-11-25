@@ -57,3 +57,21 @@ npm run build
 ```
 
 The generated static files are placed in `dist/`.
+
+## Windows installer
+
+The Windows installer is built by the GitHub Actions workflow when changes are
+pushed to `main`, or when the workflow is started manually from GitHub. It
+bundles the backend and frontend, so the person installing it does not need
+Python or Node.js. The installer creates a desktop shortcut and starts the app
+in the default browser.
+
+The packaged app stores its SQLite database at
+`C:\RecruitmentApp\Data\recruitment.db` and uploaded CVs under
+`C:\RecruitmentApp\Data\CVs`. A new installation starts with a blank
+database. These files are outside the installation folder, so uninstalling or
+updating the app does not remove them.
+
+After a successful workflow run, download `RecruitmentApp-Windows-Installer`
+from that run's **Artifacts** section. The artifact contains
+`RecruitmentApp-Setup.exe` and is retained for 90 days.

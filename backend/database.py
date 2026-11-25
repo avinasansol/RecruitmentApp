@@ -1,9 +1,8 @@
 from datetime import datetime, timezone
 import re
 import sqlite3
-from pathlib import Path
 
-DATABASE_PATH = Path(__file__).parent / "recruitment.db"
+from paths import DATABASE_PATH
 
 
 def normalize_utc_timestamp(value):

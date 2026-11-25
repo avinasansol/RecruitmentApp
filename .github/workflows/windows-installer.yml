@@ -1,0 +1,67 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install backend and packaging dependencies
+        run: python -m pip install -r backend/requirements.txt pyinstaller==6.22.3
+
+      - name: Package server
+        run: >-
+          pyinstaller --noconfirm --clean --onedir --windowed
+          --name RecruitmentAppServer
+          --paths backend
+          --distpath build/windows/server
+          --workpath build/windows/work-server
+          backend/app.py
+
+      - name: Package launcher
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name RecruitmentAppLauncher
+          --distpath build/windows/launcher
+          --workpath build/windows/work-launcher
+          backend/launcher.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        run: iscc RecruitmentApp.iss
+        working-directory: windows
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecruitmentApp-Windows-Installer
+          path: dist-installer/RecruitmentApp-Setup.exe
+          if-no-files-found: error
+          retention-days: 90

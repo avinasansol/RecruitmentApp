@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
+import sys
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
@@ -9,8 +10,10 @@ from flask_cors import CORS
 from docx import Document
 from pypdf import PdfReader
 from waitress import serve
+from werkzeug.exceptions import NotFound
 
 from database import initialize_database, get_db_connection
+from paths import CV_UPLOAD_FOLDER, IS_PACKAGED
 
 MAX_CV_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MULTIPART_OVERHEAD_LIMIT_BYTES = 1024 * 1024
@@ -43,8 +46,12 @@ CORS(
 
 initialize_database()
 
-CV_UPLOAD_FOLDER = Path(__file__).parent / "uploads" / "cvs"
 ALLOWED_CV_EXTENSIONS = {".pdf", ".docx"}
+FRONTEND_DIST_FOLDER = (
+    Path(sys.executable).resolve().parent / "frontend"
+    if IS_PACKAGED
+    else Path(__file__).resolve().parent.parent / "dist"
+)
 CANDIDATE_WITH_LATEST_APPLICATION_QUERY = """
     SELECT
         candidate.id,
@@ -206,13 +213,6 @@ def extract_resume_details(text):
         "email": email_match.group(0) if email_match else "",
         "phone": phone,
     }
-
-@app.route("/")
-def home():
-    return jsonify({
-        "message": "Recruitment Backend is running!"
-    })
-
 
 @app.route("/api/health")
 def health_check():
@@ -807,6 +807,25 @@ def delete_candidate(candidate_id):
     connection.close()
 
     return jsonify({"message": "Candidate deleted successfully"}), 200
+
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path):
+    if path.startswith("api/"):
+        return jsonify({"error": "API endpoint not found."}), 404
+    if not FRONTEND_DIST_FOLDER.is_dir():
+        return jsonify({"error": "The frontend build was not found."}), 404
+
+    try:
+        return send_from_directory(
+            FRONTEND_DIST_FOLDER,
+            path or "index.html",
+        )
+    except NotFound:
+        if Path(path).suffix:
+            raise
+        return send_from_directory(FRONTEND_DIST_FOLDER, "index.html")
 
 if __name__ == "__main__":
     serve(app, host="127.0.0.1", port=5001)
